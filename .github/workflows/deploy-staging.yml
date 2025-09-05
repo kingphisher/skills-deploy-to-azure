@@ -6,8 +6,12 @@ on:
 
 env:
   IMAGE_REGISTRY_URL: ghcr.io
-  DOCKER_IMAGE_NAME: kingphisher-aws-ttt
-  AWS_WEBAPP_NAME: kingphisher-ttt-app
+  ###############################################
+  ### Replace <username> with GitHub username ###
+  ###############################################
+  DOCKER_IMAGE_NAME: <username>-azure-ttt
+  AZURE_WEBAPP_NAME: <username>-ttt-app
+  ###############################################
 
 jobs:
   build:
@@ -20,9 +24,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 16
-      - name: npm instal and build webpack
+      - name: npm install and build webpack
         run: |
-          npm install 
+          npm install
           npm run build
       - uses: actions/upload-artifact@v4
         with:
@@ -37,7 +41,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download build artifact
+      - name: Download built artifact
         uses: actions/download-artifact@v4
         with:
           name: webpack artifacts
@@ -48,13 +52,13 @@ jobs:
         with:
           registry: ${{ env.IMAGE_REGISTRY_URL }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.CR_PAT }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{env.IMAGE_REGISTRY_URL}}/${{github.repository}}/${{env.DOCKER_IMAGE_NAME}}
+          images: ${{env.IMAGE_REGISTRY_URL}}/${{ github.repository }}/${{env.DOCKER_IMAGE_NAME}}
           tags: |
             type=sha,format=long,prefix=
 
@@ -66,20 +70,32 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  Deploy-to-AWS:
+  Deploy-to-Azure:
     runs-on: ubuntu-latest
     needs: Build-Docker-Image
-    name: Deploy app container to AWS
+    name: Deploy app container to Azure
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+      - name: "Login via Azure CLI"
+        uses: azure/login@v2
         with:
-          aws-region:  ${{ secrets.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy to App Runner
-        uses: awslabs/amazon-app-runner-deploy@v2.5.2
+      - uses: azure/docker-login@v1
         with:
-          service: ${{ env.AWS_WEBAPP_NAME }}
-          image: ${env.IMAGE_REGISTRY_URL}}/${{github.repository}}/${{env.DOCKER_IMAGE_NAME}}
+          login-server: ${{env.IMAGE_REGISTRY_URL}}
+          username: ${{ github.actor }}
+          password: ${{ secrets.CR_PAT }}
+
+      - name: Deploy web app container
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{env.AZURE_WEBAPP_NAME}}
+          images: ${{env.IMAGE_REGISTRY_URL}}/${{ github.repository }}/${{env.DOCKER_IMAGE_NAME}}:${{ github.sha }}
+
+      - name: Azure logout via Azure CLI
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az logout
+            az cache purge
+            az account clear
